@@ -12,6 +12,10 @@ const msg = document.getElementById('msg')
 const msgLinks = document.getElementById('msg-links')
 const linkLogin = document.getElementById('link-login')
 
+// 確認メール内リンクのリダイレクト先（ログイン画面）
+// 実際に配置するパスに合わせて調整してください
+const REDIRECT_URL = new URL('user-login.html', window.location.href).toString()
+
 function setupToggle(toggleId, inputEl) {
   const toggle = document.getElementById(toggleId)
   toggle.addEventListener('click', () => {
@@ -57,7 +61,13 @@ signupBtn.addEventListener('click', async () => {
   signupBtn.disabled = true
   signupBtn.textContent = '登録中...'
 
-  const { error } = await db.auth.signUp({ email, password })
+  const { error } = await db.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: REDIRECT_URL
+    }
+  })
 
   if (error) {
     if (error.message && error.message.toLowerCase().includes('already registered')) {
