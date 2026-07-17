@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>パスワード再設定</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Noto+Serif+JP:wght@300;400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="user-login.css">
+</head>
+<body>
+  <main class="login-wrap">
+    <div class="login-card">
+
+      <div class="login-header">
+        <p class="label">RESET PASSWORD</p>
+        <h1>パスワード再設定</h1>
+        <p class="lead">登録済みのメールアドレスを入力してください。再設定用のリンクをお送りします。</p>
+      </div>
+
+      <div class="login-form">
+        <div class="field">
+          <label for="email">メールアドレス</label>
+          <input type="email" id="email" placeholder="example@mail.com" autocomplete="email">
+        </div>
+
+        <p class="msg" id="msg"></p>
+
+        <button id="reset-btn">再設定メールを送る</button>
+      </div>
+
+      <div class="auth-footer">
+        <a href="user-login.html">← ログインに戻る</a>
+      </div>
+
+    </div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="user-reset-request.js"></script>
+</body>
+</html>
