@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>新しいパスワードの設定</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Noto+Serif+JP:wght@300;400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="user-login.css">
+</head>
+<body>
+  <main class="login-wrap">
+    <div class="login-card">
+
+      <div class="login-header">
+        <p class="label">NEW PASSWORD</p>
+        <h1>新しいパスワード</h1>
+        <p class="lead">新しいパスワードを入力してください。</p>
+      </div>
+
+      <div class="login-form">
+        <div class="field">
+          <label for="password">新しいパスワード（8文字以上）</label>
+          <div class="password-field">
+            <input type="password" id="password" placeholder="••••••••" autocomplete="new-password">
+            <button type="button" class="password-toggle" id="password-toggle" aria-label="パスワードを表示">👁</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="password-confirm">新しいパスワード（確認）</label>
+          <div class="password-field">
+            <input type="password" id="password-confirm" placeholder="••••••••" autocomplete="new-password">
+            <button type="button" class="password-toggle" id="password-confirm-toggle" aria-label="パスワードを表示">👁</button>
+          </div>
+        </div>
+
+        <p class="msg" id="msg"></p>
+
+        <button id="update-btn">パスワードを更新する</button>
+      </div>
+
+      <div class="auth-footer">
+        <a href="user-login.html">← ログインに戻る</a>
+      </div>
+
+    </div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="user-reset-confirm.js"></script>
+</body>
+</html>
