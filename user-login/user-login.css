@@ -1,0 +1,212 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #C74629;
+  --bg: #F1EDE3;
+  --text: #261F1B;
+  --muted: #8C6355;
+  --surface: #FFFEF5;
+  --earth: #A08420;
+  --slate: #3F4820;
+  --moss: #5A7252;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Serif JP', serif;
+  font-weight: 300;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-wrap {
+  width: 100%;
+  padding: 14px;
+}
+
+.login-card {
+  background: var(--surface);
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 56px 48px;
+  border: 1px solid color-mix(in srgb, var(--earth) 30%, transparent);
+}
+
+/* ヘッダー */
+.login-header {
+  margin-bottom: 40px;
+}
+
+.label {
+  font-size: 0.68rem;
+  letter-spacing: 0.3em;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+h1 {
+  font-family: 'Cormorant Garamond', serif;
+  font-style: italic;
+  font-weight: 300;
+  font-size: clamp(2rem, 5vw, 2.8rem);
+  line-height: 1.2;
+  color: var(--text);
+}
+
+p.lead {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+/* フォーム */
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+label {
+  font-size: 0.68rem;
+  letter-spacing: 0.25em;
+  color: var(--muted);
+}
+
+input {
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--earth) 30%, transparent);
+  border-radius: 0;
+  padding: 14px 16px;
+  width: 100%;
+  font-family: 'Noto Serif JP', serif;
+  font-size: 0.95rem;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+input:focus {
+  border-color: var(--accent);
+}
+
+input::placeholder {
+  color: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+/* パスワード表示切り替え */
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 48px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  bottom: 4px;
+  width: 40px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 1rem;
+  letter-spacing: normal;
+  transition: color 0.2s, opacity 0.2s;
+}
+
+.password-toggle:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* メッセージ（エラー／お知らせ／成功） */
+.msg {
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  min-height: 1.2em;
+  line-height: 1.6;
+}
+
+.msg:empty { min-height: 0; }
+
+.msg--error { color: var(--accent); }
+.msg--info  { color: var(--earth); }
+.msg--success { color: var(--moss); }
+
+/* エラー時の補助導線（パスワード再設定・新規登録へのリンク） */
+.msg-links {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: -8px;
+}
+
+.msg-links a {
+  font-size: 0.78rem;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  letter-spacing: 0.02em;
+}
+
+.msg-links a:hover { opacity: 0.8; }
+
+/* ボタン */
+button {
+  background: var(--accent);
+  color: var(--surface);
+  border: none;
+  border-radius: 0;
+  padding: 16px;
+  font-family: 'Noto Serif JP', serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.3em;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  margin-top: 8px;
+  width: 100%;
+}
+
+button:hover { opacity: 0.85; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* 下部の導線（新規登録・ログインへ戻る等） */
+.auth-footer {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid color-mix(in srgb, var(--earth) 20%, transparent);
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.auth-footer a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-footer a:hover { opacity: 0.8; }
+
+/* レスポンシブ */
+@media (max-width: 480px) {
+  .login-card { padding: 40px 24px; }
+}
