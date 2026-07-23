@@ -1,0 +1,288 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --accent: #C74629;
+  --bg: #F1EDE3;
+  --text: #261F1B;
+  --muted: #8C6355;
+  --surface: #FFFEF5;
+  --earth: #A08420;
+  --slate: #3F4820;
+  --moss: #5A7252;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Serif JP', serif;
+  font-weight: 300;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px;
+  height: 52px;
+  background: var(--surface);
+  border-bottom: 1px solid color-mix(in srgb, var(--earth) 30%, transparent);
+  flex-shrink: 0;
+}
+
+.back-link {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-decoration: none;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.back-link:hover { color: var(--accent); }
+
+.header-title {
+  font-size: 0.9rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 16px 100px;
+}
+
+.loading-msg, .error-msg {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 40px 16px;
+}
+
+.error-msg { color: var(--accent); }
+
+/* ===== レッスン視聴 ===== */
+.lesson-header { margin-bottom: 14px; }
+
+.lesson-step-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.lesson-material-title {
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.player-wrap {
+  margin-bottom: 18px;
+}
+
+.player-wrap iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: none;
+  background: #000;
+}
+
+.player-wrap audio {
+  width: 100%;
+}
+
+.sentence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sentence-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--earth) 25%, transparent);
+  border-left: 3px solid var(--moss);
+  padding: 12px 12px;
+  transition: border-color 0.15s;
+}
+
+.sentence-row.playing {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.btn-play-sentence {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--earth);
+  background: none;
+  color: var(--earth);
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-play-sentence:hover { color: var(--accent); border-color: var(--accent); }
+
+.sentence-text-wrap { flex: 1; min-width: 0; }
+
+.sentence-es { font-size: 0.9rem; color: var(--text); }
+
+.sentence-jp {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 4px;
+  display: none;
+}
+
+.sentence-jp.revealed { display: block; }
+
+.btn-toggle-jp {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--muted);
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.btn-toggle-jp:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ===== フラッシュカード ===== */
+.flashcard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.flashcard-mode-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+}
+
+.flashcard-counter {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.flashcard-area {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0 30px;
+}
+
+.flashcard {
+  width: 100%;
+  max-width: 420px;
+  min-height: 220px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--earth) 30%, transparent);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 32px 24px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.flashcard-face {
+  font-size: 1.15rem;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.flashcard-face.is-back { color: var(--earth); }
+
+.flashcard-hint {
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+/* ===== 完了 ===== */
+.completed-box {
+  text-align: center;
+  padding: 60px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.completed-title {
+  font-size: 1.3rem;
+  color: var(--text);
+}
+
+.completed-sub {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.btn-restart {
+  margin-top: 10px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--surface);
+  font-family: 'Noto Serif JP', serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  padding: 12px 28px;
+  cursor: pointer;
+}
+
+.btn-restart:hover { opacity: 0.85; }
+
+.btn-back-list {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-decoration: none;
+  letter-spacing: 0.05em;
+}
+
+.btn-back-list:hover { color: var(--accent); }
+
+/* ===== フッター ===== */
+.footer-fixed {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border-top: 1px solid color-mix(in srgb, var(--earth) 30%, transparent);
+  padding: 12px 16px;
+  display: flex;
+  justify-content: center;
+}
+
+.btn-main-action {
+  width: 100%;
+  max-width: 420px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: var(--surface);
+  font-family: 'Noto Serif JP', serif;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  padding: 14px 20px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btn-main-action:hover { opacity: 0.85; }
