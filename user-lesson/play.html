@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>レッスンプラン | VOZ</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;1,300&family=Noto+Serif+JP:wght@300;400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="play.css">
+</head>
+<body>
+
+  <header class="header">
+    <a class="back-link" href="../user-lesson.html">← 一覧に戻る</a>
+    <span class="header-title" id="header-plan-title"></span>
+  </header>
+
+  <main class="main" id="main">
+
+    <p class="loading-msg" id="loading-msg">読み込み中…</p>
+    <p class="error-msg" id="error-msg" style="display:none"></p>
+
+    <!-- レッスン視聴 -->
+    <div class="view" id="view-lesson" style="display:none">
+      <div class="lesson-header">
+        <div class="lesson-step-label" id="lesson-step-label"></div>
+        <div class="lesson-material-title" id="lesson-material-title"></div>
+      </div>
+      <div class="player-wrap" id="player-wrap"></div>
+      <div class="sentence-list" id="sentence-list"></div>
+    </div>
+
+    <!-- フラッシュカード -->
+    <div class="view" id="view-flashcard" style="display:none">
+      <div class="flashcard-header">
+        <div class="flashcard-mode-label" id="flashcard-mode-label"></div>
+        <div class="flashcard-counter" id="flashcard-counter"></div>
+      </div>
+      <div class="flashcard-area">
+        <div class="flashcard" id="flashcard-el">
+          <div class="flashcard-face" id="flashcard-face-content"></div>
+          <div class="flashcard-hint" id="flashcard-hint">タップして答えを見る</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 完了 -->
+    <div class="view" id="view-completed" style="display:none">
+      <div class="completed-box">
+        <div class="completed-title">レッスンプラン完了</div>
+        <p class="completed-sub">お疲れさまでした！</p>
+        <button class="btn-restart" id="btn-restart">もう一度復習する</button>
+        <a class="btn-back-list" href="../user-lesson.html">← レッスン一覧に戻る</a>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="footer-fixed" id="footer-fixed" style="display:none">
+    <button class="btn-main-action" id="btn-main-action"></button>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="play.js"></script>
+</body>
+</html>
