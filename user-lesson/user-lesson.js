@@ -20,7 +20,7 @@ async function fetchAll() {
     .from('lesson_plan_sets')
     .select(`
       id, title, flashcard_es_jp, flashcard_jp_es, updated_at,
-      lesson_plan_items ( id )
+      lesson_plan_items ( id, lesson_plan_sentences ( id ) )
     `)
     .eq('status', 'saved')
     .order('updated_at', { ascending: false })
@@ -87,7 +87,29 @@ function renderList(listId, emptyId, plans, type) {
 
   plans.forEach(plan => {
     const progress = progressByPlan[plan.id]
-    const itemCount = plan.lesson_plan_items?.length || 0
+    const items = plan.lesson_plan_items || []
+    const itemCount = items.length
+
+    // 総ユニット数（全センテンス＋各レッスンのフラッシュカード）と、完了済みユニット数を計算
+    const doneSentenceIds = new Set(progress?.completed_sentence_ids || [])
+    const doneFlashcards = progress?.completed_flashcards || {}
+
+    let totalUnits = 0
+    let doneUnits = 0
+    items.forEach(item => {
+      const sentCount = item.lesson_plan_sentences?.length || 0
+      totalUnits += sentCount
+      ;(item.lesson_plan_sentences || []).forEach(s => {
+        if (doneSentenceIds.has(s.id)) doneUnits++
+      })
+      const modes = []
+      if (plan.flashcard_es_jp) modes.push('es_jp')
+      if (plan.flashcard_jp_es) modes.push('jp_es')
+      modes.forEach(m => {
+        totalUnits += 1
+        if (doneFlashcards[`${item.id}:${m}`]) doneUnits += 1
+      })
+    })
 
     const li = document.createElement('li')
     li.className = `plan-item ${type}`
@@ -97,16 +119,9 @@ function renderList(listId, emptyId, plans, type) {
     let progressBarHtml = ''
 
     if (type === 'progress') {
-      const pct = itemCount > 0
-        ? Math.min(100, Math.round((progress.current_item_index / itemCount) * 100))
-        : 0
-      const phaseLabel = progress.phase === 'lesson'
-        ? `レッスン ${Math.min(progress.current_item_index + 1, itemCount)}/${itemCount}`
-        : progress.phase === 'flashcard_es_jp' ? 'フラッシュカード ES→JP 復習中'
-        : progress.phase === 'flashcard_jp_es' ? 'フラッシュカード JP→ES 復習中'
-        : '学習中'
-      metaLine = phaseLabel
-      actionLabel = '続きから'
+      const pct = totalUnits > 0 ? Math.min(100, Math.round((doneUnits / totalUnits) * 100)) : 0
+      metaLine = `進捗 ${doneUnits} / ${totalUnits}`
+      actionLabel = '開く'
       progressBarHtml = `
         <div class="plan-progress-track">
           <div class="plan-progress-fill" style="width:${pct}%"></div>
@@ -114,7 +129,7 @@ function renderList(listId, emptyId, plans, type) {
       `
     } else if (type === 'done') {
       metaLine = `レッスン ${itemCount}件　／　完了`
-      actionLabel = 'もう一度復習する'
+      actionLabel = 'もう一度開く'
     }
 
     li.innerHTML = `
