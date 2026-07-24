@@ -20,45 +20,126 @@
     <p class="loading-msg" id="loading-msg">読み込み中…</p>
     <p class="error-msg" id="error-msg" style="display:none"></p>
 
-    <!-- レッスン視聴 -->
-    <div class="view" id="view-lesson" style="display:none">
-      <div class="lesson-header">
-        <div class="lesson-step-label" id="lesson-step-label"></div>
-        <div class="lesson-material-title" id="lesson-material-title"></div>
+    <!-- レッスン内容一覧（BOX一覧） -->
+    <div class="view" id="view-overview" style="display:none">
+      <div class="overview-banner" id="overview-banner" style="display:none">✓ このレッスンプランは完了しています</div>
+      <div class="box-tabs" id="box-tabs"></div>
+      <div class="box-content" id="box-content"></div>
+    </div>
+
+    <!-- センテンス詳細 -->
+    <div class="view" id="view-sentence-detail" style="display:none">
+      <div class="detail-topbar">
+        <button class="back-btn-small" id="detail-back-btn" type="button">← 一覧に戻る</button>
+        <span class="detail-position" id="detail-position"></span>
       </div>
-      <div class="player-wrap" id="player-wrap"></div>
-      <div class="sentence-list" id="sentence-list"></div>
+
+      <div class="detail-player-wrap" id="detail-player-wrap"></div>
+
+      <div class="detail-audio-row" id="detail-audio-row" style="display:none">
+        <audio id="detail-audio" controls></audio>
+      </div>
+      <button class="btn-play-audio" id="detail-btn-play" type="button" style="width:100%;margin-bottom:14px">▶ 再生する（完了にする）</button>
+
+      <div class="detail-es-content" id="detail-es-content"></div>
+      <div class="card-bubble" id="detail-es-bubble" style="display:none;margin-bottom:14px"></div>
+
+      <button class="btn-chunk-reveal" id="detail-btn-jp-natural" type="button">＋ 自然な日本語訳</button>
+      <div class="detail-reveal-panel" id="detail-jp-natural-panel" style="display:none"></div>
+
+      <button class="btn-chunk-reveal" id="detail-btn-jp-chunk" type="button">＋ チャンク直訳</button>
+      <div class="chunk-reveal-panel" id="detail-jp-chunk-panel" style="display:none">
+        <div class="chunk-reveal-tokens" id="detail-chunk-tokens"></div>
+        <div class="card-bubble chunk-reveal-bubble" id="detail-chunk-bubble" style="display:none"></div>
+      </div>
+
+      <div class="detail-nav-row">
+        <button class="btn-detail-nav" id="detail-prev-btn" type="button">＜</button>
+        <button class="btn-detail-nav" id="detail-next-btn" type="button">＞</button>
+      </div>
     </div>
 
     <!-- フラッシュカード -->
     <div class="view" id="view-flashcard" style="display:none">
-      <div class="flashcard-header">
-        <div class="flashcard-mode-label" id="flashcard-mode-label"></div>
-        <div class="flashcard-counter" id="flashcard-counter"></div>
-      </div>
-      <div class="flashcard-area">
-        <div class="flashcard" id="flashcard-el">
-          <div class="flashcard-face" id="flashcard-face-content"></div>
-          <div class="flashcard-hint" id="flashcard-hint">タップして答えを見る</div>
+
+      <div id="fc-card-mode-wrap">
+        <div class="card-topbar">
+          <button class="back-btn-small" id="fc-back-btn" type="button">✕ 一覧に戻る</button>
+          <div class="card-progress-wrap">
+            <div class="card-progress-bar">
+              <div class="card-progress-fill" id="fc-progress-fill"></div>
+            </div>
+            <span class="card-progress-text" id="fc-progress-text">1 / 10</span>
+          </div>
+          <div class="card-mode-badge" id="fc-mode-badge"></div>
+        </div>
+
+        <div class="card-area" id="fc-card-area">
+          <div class="flashcard" id="fc-flashcard">
+
+            <div class="card-face" id="fc-front">
+              <div class="card-label" id="fc-front-label"></div>
+              <div class="card-audio-row" id="fc-front-audio-row" style="display:none">
+                <button class="btn-play-audio" id="fc-btn-play-front" type="button">▶ 再生</button>
+              </div>
+              <div class="card-content" id="fc-front-content"></div>
+              <div id="fc-front-chunk-reveal-wrap" style="display:none">
+                <button class="btn-chunk-reveal" id="fc-btn-chunk-reveal" type="button">＋ チャンク直訳</button>
+                <div class="chunk-reveal-panel" id="fc-chunk-reveal-panel" style="display:none">
+                  <div class="chunk-reveal-tokens" id="fc-chunk-reveal-tokens"></div>
+                  <div class="card-bubble chunk-reveal-bubble" id="fc-chunk-reveal-bubble" style="display:none"></div>
+                </div>
+              </div>
+              <div class="card-bubble" id="fc-front-bubble" style="display:none"></div>
+              <div class="card-input-section" id="fc-front-input-section" style="display:none">
+                <textarea class="card-input" id="fc-card-input" placeholder="スペイン語で入力してみましょう…" rows="2"></textarea>
+              </div>
+              <button class="btn-flip" id="fc-btn-flip" type="button">めくる →</button>
+            </div>
+
+            <div class="card-face" id="fc-back" style="display:none">
+              <div class="card-label" id="fc-back-label"></div>
+              <div class="card-audio-row" id="fc-back-audio-row" style="display:none">
+                <button class="btn-play-audio" id="fc-btn-play-back" type="button">▶ 再生</button>
+              </div>
+              <div class="card-content" id="fc-back-content"></div>
+              <div class="card-bubble" id="fc-back-bubble" style="display:none"></div>
+
+              <div class="user-answer-wrap" id="fc-user-answer-wrap" style="display:none">
+                <div class="user-answer-label">あなたの答え <span class="user-answer-hint">（修正できます）</span></div>
+                <textarea class="user-answer-textarea" id="fc-user-answer-text" rows="2"></textarea>
+              </div>
+
+              <div class="card-judge-row">
+                <button class="btn-judge btn-maru" id="fc-btn-maru" type="button">○</button>
+                <button class="btn-judge btn-sankaku" id="fc-btn-sankaku" type="button">△</button>
+                <button class="btn-judge btn-batsu" id="fc-btn-batsu" type="button">×</button>
+              </div>
+            </div>
+
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- 完了 -->
-    <div class="view" id="view-completed" style="display:none">
-      <div class="completed-box">
-        <div class="completed-title">レッスンプラン完了</div>
-        <p class="completed-sub">お疲れさまでした！</p>
-        <button class="btn-restart" id="btn-restart">もう一度復習する</button>
-        <a class="btn-back-list" href="../user-lesson.html">← レッスン一覧に戻る</a>
+      <div id="fc-result-view" style="display:none">
+        <div class="result-wrap">
+          <h2 class="result-title" id="fc-result-title">このモード完了</h2>
+          <div class="result-stats" id="fc-result-stats"></div>
+          <div class="result-missed" id="fc-result-missed"></div>
+          <div class="result-actions">
+            <button class="btn-retry" id="fc-btn-continue" type="button">一覧に戻る →</button>
+          </div>
+        </div>
       </div>
+
     </div>
 
   </main>
 
-  <footer class="footer-fixed" id="footer-fixed" style="display:none">
-    <button class="btn-main-action" id="btn-main-action"></button>
-  </footer>
+  <!-- YouTube hidden player（フラッシュカードの区間再生用） -->
+  <div id="yt-hidden" style="position:fixed;bottom:-999px;left:0;width:1px;height:1px;overflow:hidden">
+    <div id="yt-player-hidden"></div>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="play.js"></script>
