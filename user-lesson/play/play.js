@@ -241,10 +241,21 @@ async function recomputeStatus() {
   const { totalUnits, doneUnits } = computeTotals()
   const newStatus = (totalUnits > 0 && doneUnits >= totalUnits) ? 'completed' : 'in_progress'
   if (progress.status !== newStatus) {
+    const nowIso = new Date().toISOString()
     await saveProgress({
       status: newStatus,
-      completed_at: newStatus === 'completed' ? new Date().toISOString() : null
+      completed_at: newStatus === 'completed' ? nowIso : null
     })
+
+    if (newStatus === 'completed') {
+      // 完了履歴に1件追加(同じプランを何度完了しても、そのたびに記録が残る)
+      const { error } = await db.from('lesson_plan_completions').insert({
+        plan_id: planId,
+        user_id: currentUser.id,
+        completed_at: nowIso
+      })
+      if (error) console.error(error)
+    }
   }
 }
 
