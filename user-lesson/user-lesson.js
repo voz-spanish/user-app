@@ -15,6 +15,7 @@ async function checkAuth() {
 let currentUser = null
 let allPlans = []       // 公開済みレッスンプラン
 let progressByPlan = {} // { plan_id: progressRow }
+let completions = []    // 完了履歴(同じプランを何度完了しても1回ごとに1件)
 let currentTab = 'myplan'
 
 // ===== データ取得 =====
@@ -38,7 +39,7 @@ async function fetchAll() {
     allPlans = plans || []
   }
 
-  await fetchProgress()
+  await Promise.all([fetchProgress(), fetchCompletions()])
 }
 
 async function fetchProgress() {
@@ -53,6 +54,24 @@ async function fetchProgress() {
   } else {
     progressByPlan = {}
     ;(progressRows || []).forEach(p => { progressByPlan[p.plan_id] = p })
+  }
+}
+
+async function fetchCompletions() {
+  const { data, error } = await db
+    .from('lesson_plan_completions')
+    .select(`
+      id, completed_at,
+      lesson_plan_sets ( id, title )
+    `)
+    .eq('user_id', currentUser.id)
+    .order('completed_at', { ascending: false })
+
+  if (error) {
+    console.error(error)
+    completions = []
+  } else {
+    completions = data || []
   }
 }
 
@@ -109,8 +128,13 @@ function applyFilter() {
   } else if (currentTab === 'find') {
     renderFindList(filtered)
   } else if (currentTab === 'completed') {
-    const done = filtered.filter(p => progressByPlan[p.id]?.status === 'completed')
-    renderCompletedList(done)
+    let filteredCompletions = [...completions]
+    if (q) {
+      filteredCompletions = filteredCompletions.filter(c =>
+        c.lesson_plan_sets?.title?.toLowerCase().includes(q)
+      )
+    }
+    renderCompletedList(filteredCompletions)
   }
 }
 
@@ -215,25 +239,29 @@ function renderFindList(plans) {
   })
 }
 
-// ===== 完了日(完了済みプランを完了日順に) =====
-function renderCompletedList(plans) {
+// ===== 完了日(完了履歴を完了日順に。同じプランでも完了するたびに1件ずつ表示) =====
+function renderCompletedList(rows) {
   const list = document.getElementById('list-completed')
   const empty = document.getElementById('empty-completed')
   list.innerHTML = ''
 
-  const rows = plans
-    .map(plan => ({ plan, progress: progressByPlan[plan.id] }))
-    .sort((a, b) => new Date(b.progress?.completed_at || 0) - new Date(a.progress?.completed_at || 0))
+  // 念のため取得後にも日付降順で並べ直す
+  const sorted = [...rows].sort(
+    (a, b) => new Date(b.completed_at || 0) - new Date(a.completed_at || 0)
+  )
 
-  if (rows.length === 0) {
+  if (sorted.length === 0) {
     empty.style.display = 'block'
     return
   }
   empty.style.display = 'none'
 
-  rows.forEach(({ plan, progress }) => {
-    const dateStr = progress?.completed_at
-      ? new Date(progress.completed_at).toLocaleDateString('ja-JP')
+  sorted.forEach(row => {
+    const plan = row.lesson_plan_sets
+    if (!plan) return // プランが削除済みなどの場合はスキップ
+
+    const dateStr = row.completed_at
+      ? new Date(row.completed_at).toLocaleDateString('ja-JP')
       : '―'
 
     const li = document.createElement('li')
