@@ -746,6 +746,7 @@ let ytReady = false
 let currentPlayTimer = null
 let pendingPlayCard = null
 let pendingPlayBtn = null
+let fcAudioEl = null // mp3教材のフラッシュカード区間再生用（YouTube以外）
 
 window.onYouTubeIframeAPIReady = () => {
   ytPlayer = new YT.Player('yt-player-hidden', {
@@ -785,10 +786,19 @@ function loadYouTubeAPI() {
 }
 
 function playFlashcardAudio(card, btn) {
-  if (!card.material || card.material.type !== 'youtube' || !card.material.youtube_id) return
-  if (card.start_sec == null || card.end_sec == null) return
+  if (!card.material || card.start_sec == null || card.end_sec == null) return
+
+  if (card.material.type === 'youtube' && card.material.youtube_id) {
+    playFlashcardAudioYouTube(card, btn)
+  } else if (card.material.type === 'mp3' && card.material.audio_url) {
+    playFlashcardAudioMp3(card, btn)
+  }
+}
+
+function playFlashcardAudioYouTube(card, btn) {
   if (!ytPlayer || !ytReady) return
 
+  stopMp3Playback()
   if (currentPlayTimer) { clearTimeout(currentPlayTimer); currentPlayTimer = null }
 
   btn.textContent = '読込中…'
@@ -808,11 +818,70 @@ function playFlashcardAudio(card, btn) {
   }
 }
 
+function ensureFcAudioEl() {
+  if (!fcAudioEl) {
+    fcAudioEl = document.createElement('audio')
+    fcAudioEl.id = 'fc-audio-hidden'
+    fcAudioEl.style.display = 'none'
+    document.body.appendChild(fcAudioEl)
+  }
+  return fcAudioEl
+}
+
+function stopMp3Playback() {
+  if (!fcAudioEl) return
+  if (fcAudioEl._autoStopHandler) {
+    fcAudioEl.removeEventListener('timeupdate', fcAudioEl._autoStopHandler)
+    fcAudioEl._autoStopHandler = null
+  }
+  fcAudioEl.pause()
+}
+
+function playFlashcardAudioMp3(card, btn) {
+  // YouTube側の再生中なら止める
+  pendingPlayCard = null
+  pendingPlayBtn = null
+  if (currentPlayTimer) { clearTimeout(currentPlayTimer); currentPlayTimer = null }
+  try { if (ytPlayer) ytPlayer.pauseVideo() } catch (e) {}
+
+  const audio = ensureFcAudioEl()
+  stopMp3Playback()
+
+  const startPlayback = () => {
+    audio.currentTime = card.start_sec
+    audio.play()
+    btn.classList.add('playing')
+    btn.textContent = '■ 再生中'
+
+    const handler = () => {
+      if (audio.currentTime >= card.end_sec) {
+        audio.pause()
+        audio.removeEventListener('timeupdate', handler)
+        audio._autoStopHandler = null
+        btn.classList.remove('playing')
+        btn.textContent = '▶ 再生'
+      }
+    }
+    audio._autoStopHandler = handler
+    audio.addEventListener('timeupdate', handler)
+  }
+
+  if (audio.src === card.material.audio_url && audio.readyState >= 1) {
+    startPlayback()
+  } else {
+    btn.textContent = '読込中…'
+    audio.src = card.material.audio_url
+    audio.addEventListener('loadedmetadata', startPlayback, { once: true })
+    audio.load()
+  }
+}
+
 function stopFlashcardAudio() {
   pendingPlayCard = null
   pendingPlayBtn = null
   if (currentPlayTimer) { clearTimeout(currentPlayTimer); currentPlayTimer = null }
   try { if (ytPlayer) ytPlayer.pauseVideo() } catch (e) {}
+  stopMp3Playback()
   const btnF = document.getElementById('fc-btn-play-front')
   const btnB = document.getElementById('fc-btn-play-back')
   if (btnF) { btnF.classList.remove('playing'); btnF.textContent = '▶ 再生' }
@@ -880,7 +949,9 @@ function renderFlashcardCard() {
     renderFcBackES(card)
   }
 
-  const hasAudio = card.material?.type === 'youtube' && card.material?.youtube_id &&
+  const hasAudio =
+    ((card.material?.type === 'youtube' && card.material?.youtube_id) ||
+     (card.material?.type === 'mp3' && card.material?.audio_url)) &&
     card.start_sec != null && card.end_sec != null
   const frontAudioRow = document.getElementById('fc-front-audio-row')
   const backAudioRow = document.getElementById('fc-back-audio-row')
