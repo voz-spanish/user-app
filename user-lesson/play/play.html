@@ -13,12 +13,30 @@
   <header class="header">
     <a class="back-link" href="../user-lesson.html">← 一覧に戻る</a>
     <span class="header-title" id="header-plan-title"></span>
+    <div class="header-menu-wrap" id="header-menu-wrap">
+      <button class="header-menu-btn" id="header-menu-btn" type="button" aria-label="メニュー">⋯</button>
+      <div class="header-menu-dropdown" id="header-menu-dropdown" style="display:none">
+        <button class="header-menu-item" id="btn-stop-plan" type="button">このプランを止める</button>
+      </div>
+    </div>
   </header>
 
   <main class="main" id="main">
 
     <p class="loading-msg" id="loading-msg">読み込み中…</p>
     <p class="error-msg" id="error-msg" style="display:none"></p>
+
+    <!-- このプランを止める 確認画面 -->
+    <div class="view" id="view-stop-confirm" style="display:none">
+      <div class="stop-confirm-wrap">
+        <p class="stop-confirm-title">このプランをやめますか？</p>
+        <p class="stop-confirm-desc">これまでの進捗（完了したセンテンスやフラッシュカードの記録）はすべて削除されます。この操作は取り消せません。</p>
+        <div class="stop-confirm-actions">
+          <button class="btn-stop-cancel" id="stop-cancel-btn" type="button">キャンセル</button>
+          <button class="btn-stop-confirm" id="stop-confirm-btn" type="button">プランを中止する</button>
+        </div>
+      </div>
+    </div>
 
     <!-- レッスン内容一覧（BOX一覧） -->
     <div class="view" id="view-overview" style="display:none">
