@@ -1,3 +1,6 @@
+;(function () {
+'use strict'
+
 const SUPABASE_URL = 'https://nsprbshgkxywtwmimkcy.supabase.co'
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zcHJic2hna3h5d3R3bWlta2N5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzMzMxMDAsImV4cCI6MjA5MzkwOTEwMH0.g51y4rq3xEDYD9GJoux7UDBeOpXyqYLDptwQ3LHy6b8'
 const { createClient } = supabase
@@ -169,3 +172,5 @@ function initNotifButton() {
     loadNotifBadge(),
   ])
 })()
+
+})();
