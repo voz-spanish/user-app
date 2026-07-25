@@ -42,51 +42,88 @@ async function loadTodayQuestion() {
 
 /* =====================================================
    レッスンおすすめ(続きから/最近完了)
-   TODO: 本実装では lessons テーブルと、ユーザーごとの
-   進捗テーブル(例: user_lesson_progress)を join し、
-   ・進行中のレッスン
-   ・最近完了したレッスン
-   の順で数件取得するクエリに差し替える。
+   lesson_plan_progress を updated_at 降順で取得し、
+   紐づく lesson_plan_sets(タイトル・BOX・センテンス構成)から
+   user-lesson.js と同じロジックで進捗％を計算して表示する。
+   →「進行中」「完了」どちらも updated_at が新しい順に並ぶので、
+   　自然と「続きから／最近完了」の順になる。
 ===================================================== */
 async function loadRecommendedLessons() {
   const scroll = document.getElementById('lesson-scroll')
 
-  // --- ダミーデータ(差し替え予定) ---
-  const dummyLessons = [
-    { id: 1, title: '基本の挨拶と自己紹介', progress: 60, status: 'progress' },
-    { id: 2, title: '過去形の使い方(規則動詞)', progress: 100, status: 'done' },
-    { id: 3, title: 'レストランでの注文', progress: 20, status: 'progress' },
-  ]
-  // ----------------------------------
+  const { data: { user } } = await db.auth.getUser()
 
-  // 本実装イメージ(コメントアウト):
-  // const { data, error } = await db
-  //   .from('user_lesson_progress')
-  //   .select('progress, lessons(id, title)')
-  //   .order('updated_at', { ascending: false })
-  //   .limit(5)
+  const { data: progressRows, error } = await db
+    .from('lesson_plan_progress')
+    .select(`
+      status, completed_sentence_ids, completed_flashcards, updated_at,
+      lesson_plan_sets (
+        id, title, flashcard_es_jp, flashcard_jp_es, status,
+        lesson_plan_items ( id, lesson_plan_sentences ( id ) )
+      )
+    `)
+    .eq('user_id', user.id)
+    .order('updated_at', { ascending: false })
+    .limit(5)
+
+  if (error) {
+    console.error(error)
+    scroll.innerHTML = '<p class="empty-note">レッスンの読み込みに失敗しました</p>'
+    return
+  }
+
+  // 削除済み/非公開になったプランや、プランと紐づかない行は除外
+  const rows = (progressRows || []).filter(
+    row => row.lesson_plan_sets && row.lesson_plan_sets.status === 'saved'
+  )
 
   scroll.innerHTML = ''
 
-  if (dummyLessons.length === 0) {
+  if (rows.length === 0) {
     scroll.innerHTML = '<p class="empty-note">まだレッスンの記録がありません</p>'
     return
   }
 
-  dummyLessons.forEach(lesson => {
+  rows.forEach(row => {
+    const plan = row.lesson_plan_sets
+    const items = plan.lesson_plan_items || []
+
+    const doneSentenceIds = new Set(row.completed_sentence_ids || [])
+    const doneFlashcards = row.completed_flashcards || {}
+
+    // 総ユニット数(全センテンス＋各BOXのフラッシュカード)と完了済みユニット数を計算
+    let totalUnits = 0
+    let doneUnits = 0
+    items.forEach(item => {
+      const sentences = item.lesson_plan_sentences || []
+      totalUnits += sentences.length
+      sentences.forEach(s => { if (doneSentenceIds.has(s.id)) doneUnits++ })
+
+      const modes = []
+      if (plan.flashcard_es_jp) modes.push('es_jp')
+      if (plan.flashcard_jp_es) modes.push('jp_es')
+      modes.forEach(m => {
+        totalUnits += 1
+        if (doneFlashcards[`${item.id}:${m}`]) doneUnits += 1
+      })
+    })
+
+    const pct = totalUnits > 0 ? Math.min(100, Math.round((doneUnits / totalUnits) * 100)) : 0
+    const isDone = row.status === 'completed'
+
     const card = document.createElement('div')
     card.className = 'lesson-card'
     card.innerHTML = `
-      <div class="lesson-card-tag${lesson.status === 'done' ? ' done' : ''}">
-        ${lesson.status === 'done' ? '完了' : '進行中'}
+      <div class="lesson-card-tag${isDone ? ' done' : ''}">
+        ${isDone ? '完了' : '進行中'}
       </div>
-      <div class="lesson-card-title">${lesson.title}</div>
+      <div class="lesson-card-title">${plan.title || '（タイトル未設定）'}</div>
       <div class="lesson-progress-track">
-        <div class="lesson-progress-fill" style="width:${lesson.progress}%"></div>
+        <div class="lesson-progress-fill" style="width:${pct}%"></div>
       </div>
     `
     card.addEventListener('click', () => {
-      window.location.href = `../user-lesson/user-lesson.html?id=${lesson.id}`
+      window.location.href = `../user-lesson/play/play.html?plan_id=${plan.id}`
     })
     scroll.appendChild(card)
   })
