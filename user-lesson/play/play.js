@@ -1339,6 +1339,50 @@ function expandChunkToSubs(chunkSpan, leafTokens, vocabMap, bubble, showBubble) 
 }
 
 // ============================================================
+// ヘッダー「…」メニュー / このプランを止める
+// ============================================================
+
+document.getElementById('header-menu-btn').addEventListener('click', (e) => {
+  e.stopPropagation()
+  const dropdown = document.getElementById('header-menu-dropdown')
+  dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block'
+})
+
+document.addEventListener('click', () => {
+  document.getElementById('header-menu-dropdown').style.display = 'none'
+})
+
+document.getElementById('btn-stop-plan').addEventListener('click', () => {
+  document.getElementById('header-menu-dropdown').style.display = 'none'
+  showView('view-stop-confirm')
+})
+
+document.getElementById('stop-cancel-btn').addEventListener('click', () => {
+  renderOverview()
+})
+
+document.getElementById('stop-confirm-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('stop-confirm-btn')
+  btn.disabled = true
+  btn.textContent = '処理中…'
+
+  const { error } = await db
+    .from('lesson_plan_progress')
+    .delete()
+    .eq('id', progress.id)
+
+  if (error) {
+    console.error(error)
+    alert('プランの中止に失敗しました。もう一度お試しください。')
+    btn.disabled = false
+    btn.textContent = 'プランを中止する'
+    return
+  }
+
+  window.location.href = '../user-lesson.html'
+})
+
+// ============================================================
 // 起動
 // ============================================================
 
