@@ -246,16 +246,10 @@ async function recomputeStatus() {
       status: newStatus,
       completed_at: newStatus === 'completed' ? nowIso : null
     })
-
-    if (newStatus === 'completed') {
-      // 完了履歴に1件追加(同じプランを何度完了しても、そのたびに記録が残る)
-      const { error } = await db.from('lesson_plan_completions').insert({
-        plan_id: planId,
-        user_id: currentUser.id,
-        completed_at: nowIso
-      })
-      if (error) console.error(error)
-    }
+    // 完了履歴(lesson_plan_completions)への記録は、
+    // DB側のトリガー(trg_log_lesson_completion)が
+    // lesson_plan_progress.status → 'completed' への変化を検知して自動的に行う。
+    // クライアント側の通信失敗やページ離脱で記録が漏れないよう、ここではINSERTしない。
   }
 }
 
