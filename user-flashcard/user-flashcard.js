@@ -556,6 +556,7 @@ async function startLpSession(mode) {
 
   document.getElementById('view-lp-mode').style.display = 'none'
   document.getElementById('view-lp-training').style.display = 'flex'
+  setTrainingFooterMode(true)
   startLpPass(sentences)
 }
 
@@ -914,6 +915,7 @@ function backFromLpTraining() {
   stopLpAudio()
   document.getElementById('view-lp-training').style.display = 'none'
   document.getElementById('view-list').classList.remove('hidden')
+  setTrainingFooterMode(false)
 }
 
 function initLpTrainingUI() {
@@ -1077,6 +1079,252 @@ function expandChunkToSubs(chunkSpan, leafTokens, vocabMap, bubble, showBubble) 
   })
 }
 
+/* =====================================================
+   辞書検索パネル（フラッシュカード中に画面下からスライドイン）
+   レッスンプレイ画面と同じ挙動。既存の canView()/getUserPlan() を再利用。
+===================================================== */
+let dictEntries = []
+let dictLoaded = false
+
+async function loadDictEntries() {
+  if (dictLoaded) return
+  const { data, error } = await db
+    .from('dictionary_entries')
+    .select('*, formats(name), parts_of_speech(name)')
+    .neq('scope', 'draft')
+    .order('spanish')
+
+  if (error) {
+    console.error(error)
+    dictEntries = []
+  } else {
+    dictEntries = data || []
+  }
+  dictLoaded = true
+}
+
+function renderDictList(entries) {
+  const list = document.getElementById('search-entry-list')
+  const empty = document.getElementById('search-empty-msg')
+  list.innerHTML = ''
+
+  if (entries.length === 0) {
+    empty.style.display = 'block'
+    return
+  }
+  empty.style.display = 'none'
+
+  entries.forEach(entry => {
+    const li = document.createElement('li')
+    li.className = 'entry-item'
+
+    const formatName = entry.formats?.name || ''
+    const posName = entry.parts_of_speech?.name || ''
+    const locked = !canView(entry.scope)
+
+    li.innerHTML = `
+      <div class="entry-spanish">${entry.spanish}</div>
+      <div class="entry-japanese">${entry.japanese}</div>
+      <div class="entry-meta">
+        ${formatName ? `<span class="format-badge">${formatName}</span>` : ''}
+        ${posName ? `<span class="pos-badge">${posName}</span>` : ''}
+        ${locked ? `<span class="lock-badge">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="1"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          ${entry.scope}
+        </span>` : ''}
+      </div>
+    `
+
+    li.addEventListener('click', () => openDictDetail(entry))
+    list.appendChild(li)
+  })
+}
+
+function applyDictFilter() {
+  const q = document.getElementById('search-panel-input').value.trim().toLowerCase()
+  let filtered = [...dictEntries]
+  if (q) {
+    filtered = filtered.filter(e =>
+      e.spanish?.toLowerCase().includes(q) ||
+      e.japanese?.toLowerCase().includes(q)
+    )
+  }
+  renderDictList(filtered)
+}
+
+function openDictDetail(entry) {
+  if (!canView(entry.scope)) {
+    alert('この単語は上位プランで閲覧できます')
+    return
+  }
+
+  const content = document.getElementById('search-detail-content')
+  const formatName = entry.formats?.name || ''
+  const posName = entry.parts_of_speech?.name || ''
+  const data = entry.word_data || {}
+
+  let html = `
+    <div class="entry-meta" style="margin-bottom:8px">
+      ${formatName ? `<span class="format-badge">${formatName}</span>` : ''}
+      ${posName ? `<span class="pos-badge">${posName}</span>` : ''}
+    </div>
+    <div class="detail-spanish">${entry.spanish}</div>
+    <div class="detail-japanese">${entry.japanese}</div>
+  `
+
+  if (entry.example) {
+    html += `
+      <div class="detail-section">
+        <div class="detail-section-title">例文</div>
+        <div class="detail-text">${entry.example}</div>
+      </div>
+    `
+  }
+
+  if (entry.hint) {
+    html += `
+      <div class="detail-section">
+        <div class="detail-section-title">ヒント</div>
+        <div class="detail-text">${entry.hint}</div>
+      </div>
+    `
+  }
+
+  if (data.noun) {
+    html += `
+      <div class="detail-section">
+        <div class="detail-section-title">FORMAS CON ARTÍCULO</div>
+        <table class="conjugation-table">
+          <tr><th>単数</th><th>複数</th></tr>
+          <tr><td>${data.noun.singular || ''}</td><td>${data.noun.plural || ''}</td></tr>
+        </table>
+      </div>
+    `
+  }
+
+  if (data.adjective) {
+    html += `
+      <div class="detail-section">
+        <div class="detail-section-title">FORMAS DEL ADJETIVO</div>
+        <table class="conjugation-table">
+          <tr><th></th><th>単数</th><th>複数</th></tr>
+          <tr><td>男性</td><td>${data.adjective.ms || ''}</td><td>${data.adjective.mp || ''}</td></tr>
+          <tr><td>女性</td><td>${data.adjective.fs || ''}</td><td>${data.adjective.fp || ''}</td></tr>
+        </table>
+      </div>
+    `
+  }
+
+  if (data.article) {
+    html += `
+      <div class="detail-section">
+        <div class="detail-section-title">使い方</div>
+        <div class="detail-text">${data.article.usage || ''}</div>
+      </div>
+    `
+  }
+
+  if (data.pronoun) {
+    html += `
+      <div class="detail-section">
+        <div class="detail-section-title">${data.pronoun.subtype || ''}</div>
+        <div class="detail-text">${data.pronoun.memo || ''}</div>
+      </div>
+    `
+  }
+
+  const subjects = ['(yo)', '(tú)', '(él / ella / usted)', '(nosotros)', '(ellos / ellas / ustedes)']
+  const renderConjugations = (list) => {
+    list.forEach(tense => {
+      if (!tense.rows || tense.rows.length === 0) return
+      html += `
+        <div class="detail-section">
+          <div class="tense-title">${tense.tense}${tense.meaning ? ' — ' + tense.meaning : ''}</div>
+          <table class="conjugation-table">
+            <tr><th>主語</th><th>活用</th><th>例文</th><th>意味</th></tr>
+            ${tense.rows.map((row, i) => `
+              <tr>
+                <td>${row.subject || subjects[i] || ''}</td>
+                <td>${row.form || ''}</td>
+                <td>${row.example || ''}</td>
+                <td>${row.meaning || ''}</td>
+              </tr>
+            `).join('')}
+          </table>
+        </div>
+      `
+    })
+  }
+
+  if (data.conjugations && data.conjugations.length > 0) renderConjugations(data.conjugations)
+  if (data.custom_conjugations && data.custom_conjugations.length > 0) renderConjugations(data.custom_conjugations)
+
+  content.innerHTML = html
+  document.getElementById('search-panel-body').style.display = 'none'
+  document.getElementById('search-detail-body').style.display = 'block'
+}
+
+function showDictListView() {
+  document.getElementById('search-detail-body').style.display = 'none'
+  document.getElementById('search-panel-body').style.display = 'block'
+}
+
+async function openSearchPanel() {
+  document.getElementById('search-panel-overlay').classList.add('open')
+  showDictListView()
+  if (!dictLoaded) {
+    document.getElementById('search-empty-msg').style.display = 'none'
+    await loadDictEntries()
+    applyDictFilter()
+  }
+}
+
+function closeSearchPanel() {
+  document.getElementById('search-panel-overlay').classList.remove('open')
+}
+
+function toggleSearchPanel() {
+  const isOpen = document.getElementById('search-panel-overlay').classList.contains('open')
+  if (isOpen) {
+    closeSearchPanel()
+  } else {
+    openSearchPanel()
+  }
+}
+
+/* ----- レッスン フラッシュカード中のフッターナビ切り替え -----
+   通常時: ホーム / レッスン / 質問 / 語彙 / 検索(辞書ページへのリンク)
+   トレーニング中: ホーム / 語彙 / 検索(パネル開閉トグル) の3つに絞る */
+let lpTrainingFooterActive = false
+
+function setTrainingFooterMode(active) {
+  lpTrainingFooterActive = active
+  document.getElementById('footer-nav-lesson').style.display = active ? 'none' : ''
+  document.getElementById('footer-nav-question').style.display = active ? 'none' : ''
+  document.getElementById('footer-nav-dict').style.display = active ? 'none' : ''
+  document.getElementById('footer-search-btn').style.display = active ? 'flex' : 'none'
+  if (!active) closeSearchPanel()
+}
+
+function initDictSearchPanel() {
+  document.getElementById('lp-search-btn').addEventListener('click', openSearchPanel)
+  document.getElementById('footer-search-btn').addEventListener('click', toggleSearchPanel)
+  document.getElementById('search-panel-close').addEventListener('click', closeSearchPanel)
+  document.getElementById('search-panel-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'search-panel-overlay') closeSearchPanel()
+  })
+  document.getElementById('search-panel-input').addEventListener('input', applyDictFilter)
+  document.getElementById('search-detail-back-btn').addEventListener('click', showDictListView)
+
+  // トレーニング中に「語彙」タブを押した場合は、ページ遷移せず一覧に戻る
+  document.getElementById('footer-nav-vocab').addEventListener('click', (e) => {
+    if (lpTrainingFooterActive) {
+      e.preventDefault()
+      backFromLpTraining()
+    }
+  })
+}
+
 ;(async () => {
   await checkAuth()
   initDrawer()
@@ -1084,6 +1332,7 @@ function expandChunkToSubs(chunkSpan, leafTokens, vocabMap, bubble, showBubble) 
   initTrainingUI()
   initLpModeSelectUI()
   initLpTrainingUI()
+  initDictSearchPanel()
   await fetchAll()
   renderList()
   await fetchLessonPlans()
