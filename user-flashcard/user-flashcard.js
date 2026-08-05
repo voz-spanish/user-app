@@ -258,12 +258,835 @@ async function loadNotifBadge() {
   document.getElementById('notif-dot').classList.toggle('show', hasUnread)
 }
 
+/* =====================================================
+   レッスン フラッシュカード（練習専用・進捗には反映しません）
+   既存の「単語/テーマ」フラッシュカードとは別の仕組みとして、
+   保存済みのレッスンプラン(lesson_plan_sets)を自動で一覧表示し、
+   毎回 ES→JP / JP→ES を選んでレッスンプレイ画面と同じ操作感で
+   練習できるようにする。
+===================================================== */
+
+let allLessonPlans = [] // [{ id, title, items:[{id,material,lessonNumber,sentences}], sentenceCount }]
+
+async function fetchLessonPlans() {
+  const { data, error } = await db
+    .from('lesson_plan_sets')
+    .select(`
+      id, title, updated_at,
+      lesson_plan_items (
+        id, order_index,
+        audio_materials ( id, title, type, youtube_id, audio_url ),
+        lesson_plan_sentences (
+          id, order_index,
+          audio_sentences ( id, sentence_number, spanish_display, japanese, start_sec, end_sec )
+        )
+      )
+    `)
+    .eq('status', 'saved')
+    .order('updated_at', { ascending: false })
+
+  if (error) {
+    console.error(error)
+    allLessonPlans = []
+    return
+  }
+
+  allLessonPlans = (data || []).map(plan => {
+    const items = [...(plan.lesson_plan_items || [])]
+      .sort((a, b) => a.order_index - b.order_index)
+      .map((item, idx) => ({
+        id: item.id,
+        material: item.audio_materials,
+        lessonNumber: idx + 1,
+        sentences: [...(item.lesson_plan_sentences || [])]
+          .sort((a, b) => a.order_index - b.order_index)
+          .filter(s => s.audio_sentences)
+          .map(s => ({
+            id: s.audio_sentences.id,
+            sentence_number: s.audio_sentences.sentence_number,
+            spanish_display: s.audio_sentences.spanish_display,
+            japanese: s.audio_sentences.japanese,
+            start_sec: s.audio_sentences.start_sec,
+            end_sec: s.audio_sentences.end_sec
+          }))
+      }))
+    const sentenceCount = items.reduce((sum, it) => sum + it.sentences.length, 0)
+    return { id: plan.id, title: plan.title, items, sentenceCount }
+  }).filter(p => p.sentenceCount > 0)
+}
+
+function renderLessonGroup() {
+  const groupEl = document.getElementById('lp-list-group')
+  const wrap = document.getElementById('lp-list')
+  wrap.innerHTML = ''
+
+  if (allLessonPlans.length === 0) {
+    groupEl.style.display = 'none'
+    return
+  }
+  groupEl.style.display = 'block'
+
+  allLessonPlans.forEach(plan => {
+    const row = document.createElement('div')
+    row.className = 'set-row'
+    row.innerHTML = `
+      <span class="set-row-name">${plan.title || '（タイトル未設定）'}</span>
+      <span class="set-row-meta">
+        <span class="set-row-count">${plan.sentenceCount}枚</span>
+      </span>
+    `
+    row.addEventListener('click', () => openLpModeSelect(plan))
+    wrap.appendChild(row)
+  })
+}
+
+/* ----- モード選択 ----- */
+let lpActivePlan = null
+let lpActiveMode = null
+
+function openLpModeSelect(plan) {
+  lpActivePlan = plan
+  document.getElementById('view-list').classList.add('hidden')
+  document.getElementById('view-lp-mode').style.display = 'block'
+  document.getElementById('lp-mode-title').textContent = plan.title || '（タイトル未設定）'
+}
+
+function closeLpModeSelect() {
+  document.getElementById('view-lp-mode').style.display = 'none'
+  document.getElementById('view-list').classList.remove('hidden')
+}
+
+function initLpModeSelectUI() {
+  document.getElementById('lp-mode-back').addEventListener('click', closeLpModeSelect)
+  document.getElementById('lp-mode-es-jp').addEventListener('click', () => startLpSession('es_jp'))
+  document.getElementById('lp-mode-jp-es').addEventListener('click', () => startLpSession('jp_es'))
+}
+
+/* ----- チャンク/語彙の読み込み(初回のみ・遅延読み込み) ----- */
+async function ensureLpSentencesLoaded(plan) {
+  if (plan._sentencesFlat) return plan._sentencesFlat
+
+  const flat = []
+  plan.items.forEach(it => {
+    it.sentences.forEach(s => {
+      flat.push({ ...s, itemId: it.id, material: it.material, lessonNumber: it.lessonNumber })
+    })
+  })
+
+  const ids = flat.map(s => s.id)
+  if (ids.length > 0) {
+    const [chunksRes, vocabRes] = await Promise.all([
+      db.from('audio_sentence_chunks').select('*').in('sentence_id', ids).order('sort_order'),
+      db.from('audio_sentence_vocab').select('*').in('sentence_id', ids)
+    ])
+    const chunksMap = {}
+    ;(chunksRes.data || []).forEach(c => {
+      if (!chunksMap[c.sentence_id]) chunksMap[c.sentence_id] = []
+      chunksMap[c.sentence_id].push(c)
+    })
+    const vocabMap = {}
+    ;(vocabRes.data || []).forEach(v => {
+      if (!vocabMap[v.sentence_id]) vocabMap[v.sentence_id] = {}
+      vocabMap[v.sentence_id][v.spanish] = v.selected_meaning || ''
+    })
+    flat.forEach(s => { s.chunks = chunksMap[s.id] || []; s.vocab = vocabMap[s.id] || {} })
+  }
+
+  plan._sentencesFlat = flat
+  return flat
+}
+
+/* ----- YouTube / 音声 再生(レッスンプレイ画面と同じ挙動) ----- */
+let lpYtPlayer = null
+let lpYtReady = false
+let lpCurrentPlayTimer = null
+let lpPendingPlayCard = null
+let lpPendingPlayBtn = null
+let lpAudioEl = null
+
+window.onYouTubeIframeAPIReady = () => {
+  lpYtPlayer = new YT.Player('yt-player-hidden', {
+    height: '1', width: '1',
+    videoId: '',
+    playerVars: { playsinline: 1, rel: 0, autoplay: 0 },
+    events: {
+      onReady: () => { lpYtReady = true },
+      onStateChange: (e) => {
+        if (e.data === YT.PlayerState.PLAYING && lpPendingPlayCard) {
+          const card = lpPendingPlayCard
+          const btn = lpPendingPlayBtn
+          lpPendingPlayCard = null
+          lpPendingPlayBtn = null
+          if (lpCurrentPlayTimer) clearTimeout(lpCurrentPlayTimer)
+          const duration = (card.end_sec - card.start_sec) * 1000
+          btn.classList.add('playing')
+          btn.textContent = '■ 再生中'
+          lpCurrentPlayTimer = setTimeout(() => {
+            try { lpYtPlayer.pauseVideo() } catch (e) {}
+            btn.classList.remove('playing')
+            btn.textContent = '▶ 再生'
+            lpCurrentPlayTimer = null
+          }, duration)
+        }
+      }
+    }
+  })
+}
+
+function loadLpYouTubeAPI() {
+  if (document.getElementById('yt-api-script')) return
+  const tag = document.createElement('script')
+  tag.id = 'yt-api-script'
+  tag.src = 'https://www.youtube.com/iframe_api'
+  document.head.appendChild(tag)
+}
+
+function playLpAudio(card, btn) {
+  if (!card.material || card.start_sec == null || card.end_sec == null) return
+  if (card.material.type === 'youtube' && card.material.youtube_id) {
+    playLpAudioYouTube(card, btn)
+  } else if (card.material.type === 'mp3' && card.material.audio_url) {
+    playLpAudioMp3(card, btn)
+  }
+}
+
+function playLpAudioYouTube(card, btn) {
+  if (!lpYtPlayer || !lpYtReady) return
+  stopLpMp3()
+  if (lpCurrentPlayTimer) { clearTimeout(lpCurrentPlayTimer); lpCurrentPlayTimer = null }
+
+  btn.textContent = '読込中…'
+  btn.classList.remove('playing')
+  lpPendingPlayCard = card
+  lpPendingPlayBtn = btn
+
+  let currentVideoId = ''
+  try { currentVideoId = lpYtPlayer.getVideoData()?.video_id || '' } catch (e) {}
+
+  if (currentVideoId === card.material.youtube_id) {
+    lpYtPlayer.seekTo(card.start_sec, true)
+    lpYtPlayer.playVideo()
+  } else {
+    lpYtPlayer.loadVideoById({ videoId: card.material.youtube_id, startSeconds: card.start_sec })
+  }
+}
+
+function ensureLpAudioEl() {
+  if (!lpAudioEl) {
+    lpAudioEl = document.createElement('audio')
+    lpAudioEl.id = 'lp-audio-hidden'
+    lpAudioEl.style.display = 'none'
+    document.body.appendChild(lpAudioEl)
+  }
+  return lpAudioEl
+}
+
+function stopLpMp3() {
+  if (!lpAudioEl) return
+  if (lpAudioEl._autoStopHandler) {
+    lpAudioEl.removeEventListener('timeupdate', lpAudioEl._autoStopHandler)
+    lpAudioEl._autoStopHandler = null
+  }
+  lpAudioEl.pause()
+}
+
+function playLpAudioMp3(card, btn) {
+  lpPendingPlayCard = null
+  lpPendingPlayBtn = null
+  if (lpCurrentPlayTimer) { clearTimeout(lpCurrentPlayTimer); lpCurrentPlayTimer = null }
+  try { if (lpYtPlayer) lpYtPlayer.pauseVideo() } catch (e) {}
+
+  const audio = ensureLpAudioEl()
+  stopLpMp3()
+
+  const startPlayback = () => {
+    audio.currentTime = card.start_sec
+    audio.play()
+    btn.classList.add('playing')
+    btn.textContent = '■ 再生中'
+    const handler = () => {
+      if (audio.currentTime >= card.end_sec) {
+        audio.pause()
+        audio.removeEventListener('timeupdate', handler)
+        audio._autoStopHandler = null
+        btn.classList.remove('playing')
+        btn.textContent = '▶ 再生'
+      }
+    }
+    audio._autoStopHandler = handler
+    audio.addEventListener('timeupdate', handler)
+  }
+
+  if (audio.src === card.material.audio_url && audio.readyState >= 1) {
+    startPlayback()
+  } else {
+    btn.textContent = '読込中…'
+    audio.src = card.material.audio_url
+    audio.addEventListener('loadedmetadata', startPlayback, { once: true })
+    audio.load()
+  }
+}
+
+function stopLpAudio() {
+  lpPendingPlayCard = null
+  lpPendingPlayBtn = null
+  if (lpCurrentPlayTimer) { clearTimeout(lpCurrentPlayTimer); lpCurrentPlayTimer = null }
+  try { if (lpYtPlayer) lpYtPlayer.pauseVideo() } catch (e) {}
+  stopLpMp3()
+  const btnF = document.getElementById('lp-btn-play-front')
+  const btnB = document.getElementById('lp-btn-play-back')
+  if (btnF) { btnF.classList.remove('playing'); btnF.textContent = '▶ 再生' }
+  if (btnB) { btnB.classList.remove('playing'); btnB.textContent = '▶ 再生' }
+}
+
+/* ----- トレーニング本体(○△×判定・チャンク展開・音声再生) ----- */
+let lpQueue = []
+let lpIndex = 0
+let lpResults = {}
+let lpFirstResults = {}
+let lpTotal = 0
+
+async function startLpSession(mode) {
+  lpActiveMode = mode
+  const sentences = await ensureLpSentencesLoaded(lpActivePlan)
+
+  if (lpActivePlan.items.some(it => it.material?.type === 'youtube' && it.material?.youtube_id)) {
+    loadLpYouTubeAPI()
+  }
+
+  document.getElementById('view-lp-mode').style.display = 'none'
+  document.getElementById('view-lp-training').style.display = 'flex'
+  startLpPass(sentences)
+}
+
+function startLpPass(sentences) {
+  document.getElementById('lp-card-mode-wrap').style.display = 'block'
+  document.getElementById('lp-result-view').style.display = 'none'
+
+  lpQueue = [...sentences]
+  lpIndex = 0
+  lpResults = {}
+  lpFirstResults = {}
+  lpTotal = sentences.length
+
+  if (lpTotal === 0) {
+    showLpResult()
+    return
+  }
+
+  document.getElementById('lp-mode-badge').textContent = lpActiveMode === 'es_jp' ? 'ES→JP' : 'JP→ES'
+  renderLpCard()
+}
+
+function lpLabel(card) {
+  return `レッスン ${card.lessonNumber}　・　センテンス ${card.sentence_number ?? ''}`
+}
+
+function renderLpCard() {
+  const card = lpQueue[lpIndex]
+  const isEsJp = lpActiveMode === 'es_jp'
+  updateLpProgress()
+
+  document.getElementById('lp-front').style.display = 'flex'
+  document.getElementById('lp-back').style.display = 'none'
+  document.getElementById('lp-card-input').value = ''
+  document.getElementById('lp-front-bubble').style.display = 'none'
+  document.getElementById('lp-back-bubble').style.display = 'none'
+  document.getElementById('lp-user-answer-wrap').style.display = 'none'
+  document.getElementById('lp-user-answer-text').value = ''
+
+  document.getElementById('lp-front-chunk-reveal-wrap').style.display = 'none'
+  document.getElementById('lp-chunk-reveal-panel').style.display = 'none'
+  document.getElementById('lp-chunk-reveal-bubble').style.display = 'none'
+  document.getElementById('lp-chunk-reveal-tokens').innerHTML = ''
+
+  document.getElementById('lp-front-input-section').style.display = isEsJp ? 'none' : 'block'
+
+  if (isEsJp) {
+    renderLpFrontES(card)
+    renderLpBackJP(card)
+  } else {
+    renderLpFrontJP(card)
+    renderLpBackES(card)
+  }
+
+  const hasAudio =
+    ((card.material?.type === 'youtube' && card.material?.youtube_id) ||
+     (card.material?.type === 'mp3' && card.material?.audio_url)) &&
+    card.start_sec != null && card.end_sec != null
+  const frontAudioRow = document.getElementById('lp-front-audio-row')
+  const backAudioRow = document.getElementById('lp-back-audio-row')
+
+  if (hasAudio) {
+    frontAudioRow.style.display = isEsJp ? 'flex' : 'none'
+    backAudioRow.style.display = isEsJp ? 'none' : 'flex'
+  } else {
+    frontAudioRow.style.display = 'none'
+    backAudioRow.style.display = 'none'
+  }
+
+  document.getElementById('lp-btn-play-front').onclick = () =>
+    playLpAudio(card, document.getElementById('lp-btn-play-front'))
+  document.getElementById('lp-btn-play-back').onclick = () =>
+    playLpAudio(card, document.getElementById('lp-btn-play-back'))
+}
+
+function renderLpFrontES(card) {
+  document.getElementById('lp-front-label').textContent = lpLabel(card)
+  const contentEl = document.getElementById('lp-front-content')
+  const bubble = document.getElementById('lp-front-bubble')
+  contentEl.innerHTML = ''
+  bubble.style.display = 'none'
+
+  if (!card.chunks || card.chunks.length === 0) {
+    contentEl.textContent = cleanChunkDisplay(card.spanish_display || '')
+    return
+  }
+
+  let activeChunkEl = null
+  function resetAll() {
+    if (activeChunkEl) {
+      activeChunkEl.textContent = activeChunkEl.dataset.orig
+      activeChunkEl.classList.remove('active')
+    }
+    contentEl.querySelectorAll('.fc-chunk-token').forEach(el => el.classList.remove('active'))
+    bubble.style.display = 'none'
+    activeChunkEl = null
+  }
+  function showBubble(text) {
+    if (!text) { bubble.style.display = 'none'; return }
+    bubble.textContent = text
+    bubble.style.display = 'block'
+  }
+
+  card.chunks.forEach((chunk, ci) => {
+    if (ci > 0) contentEl.appendChild(document.createTextNode(' '))
+    const raw = normalizeRaw(chunk.spanish_raw || chunk.spanish_chunk)
+    const tokens = parseTokens(raw)
+    const leafTokens = getLeafTokens(tokens)
+    const hasSubTokens = leafTokens.length > 1 ||
+      (leafTokens.length === 1 && leafTokens[0].type !== 'word')
+
+    const chunkSpan = document.createElement('span')
+    chunkSpan.className = 'fc-chunk-token'
+    chunkSpan.dataset.orig = cleanChunkDisplay(chunk.spanish_chunk)
+    chunkSpan.textContent = cleanChunkDisplay(chunk.spanish_chunk)
+
+    chunkSpan.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (activeChunkEl && activeChunkEl !== chunkSpan) {
+        activeChunkEl.textContent = activeChunkEl.dataset.orig
+        activeChunkEl.classList.remove('active')
+        contentEl.querySelectorAll('.fc-chunk-token').forEach(el => el.classList.remove('active'))
+        bubble.style.display = 'none'
+        activeChunkEl = null
+      }
+      if (activeChunkEl === chunkSpan) { resetAll(); return }
+      activeChunkEl = chunkSpan
+      chunkSpan.classList.add('active')
+      showBubble(chunk.japanese_chunk || cleanChunkDisplay(chunk.spanish_chunk))
+      if (hasSubTokens) expandChunkToSubs(chunkSpan, leafTokens, card.vocab, bubble, showBubble)
+    })
+
+    contentEl.appendChild(chunkSpan)
+  })
+
+  contentEl.addEventListener('click', (e) => { if (e.target === contentEl) resetAll() })
+}
+
+function renderLpBackJP(card) {
+  document.getElementById('lp-back-label').textContent = '日本語の意味'
+  document.getElementById('lp-back-content').innerHTML =
+    `<div class="card-jp-natural">${card.japanese || '（未登録）'}</div>`
+}
+
+function renderLpFrontJP(card) {
+  document.getElementById('lp-front-label').textContent = lpLabel(card)
+  const contentEl = document.getElementById('lp-front-content')
+  contentEl.innerHTML = ''
+
+  const jpDiv = document.createElement('div')
+  jpDiv.className = 'card-jp-natural'
+  jpDiv.textContent = card.japanese || '（未登録）'
+  contentEl.appendChild(jpDiv)
+
+  const hasChunks = card.chunks && card.chunks.length > 0
+  const chunkRevealWrap = document.getElementById('lp-front-chunk-reveal-wrap')
+  const chunkRevealPanel = document.getElementById('lp-chunk-reveal-panel')
+  const tokensEl = document.getElementById('lp-chunk-reveal-tokens')
+  const bubble = document.getElementById('lp-chunk-reveal-bubble')
+  const btnReveal = document.getElementById('lp-btn-chunk-reveal')
+
+  if (!hasChunks) { chunkRevealWrap.style.display = 'none'; return }
+  chunkRevealWrap.style.display = 'block'
+
+  let panelBuilt = false
+  function buildPanel() {
+    if (panelBuilt) return
+    panelBuilt = true
+    tokensEl.innerHTML = ''
+    bubble.style.display = 'none'
+    card.chunks.forEach((chunk, ci) => {
+      if (ci > 0) {
+        const sep = document.createElement('span')
+        sep.className = 'chunk-sep'
+        sep.textContent = '／'
+        tokensEl.appendChild(sep)
+      }
+      const span = document.createElement('span')
+      span.className = 'fc-chunk-lit'
+      span.textContent = chunk.japanese_chunk || cleanChunkDisplay(chunk.spanish_chunk)
+      span.addEventListener('click', (e) => {
+        e.stopPropagation()
+        tokensEl.querySelectorAll('.fc-chunk-lit').forEach(el => el.classList.remove('active'))
+        span.classList.add('active')
+        bubble.textContent = cleanChunkDisplay(chunk.spanish_chunk)
+        bubble.style.display = 'block'
+      })
+      tokensEl.appendChild(span)
+    })
+    tokensEl.addEventListener('click', (e) => {
+      if (e.target === tokensEl) {
+        tokensEl.querySelectorAll('.fc-chunk-lit').forEach(el => el.classList.remove('active'))
+        bubble.style.display = 'none'
+      }
+    })
+  }
+
+  const newBtn = btnReveal.cloneNode(true)
+  btnReveal.parentNode.replaceChild(newBtn, btnReveal)
+  newBtn.addEventListener('click', () => {
+    const isOpen = chunkRevealPanel.style.display !== 'none'
+    if (!isOpen) {
+      buildPanel()
+      chunkRevealPanel.style.display = 'flex'
+      newBtn.textContent = '－ チャンク直訳'
+      newBtn.classList.add('open')
+    } else {
+      chunkRevealPanel.style.display = 'none'
+      newBtn.textContent = '＋ チャンク直訳'
+      newBtn.classList.remove('open')
+    }
+  })
+}
+
+function renderLpBackES(card) {
+  document.getElementById('lp-back-label').textContent = 'スペイン語'
+  const contentEl = document.getElementById('lp-back-content')
+  const bubble = document.getElementById('lp-back-bubble')
+  contentEl.innerHTML = ''
+  bubble.style.display = 'none'
+
+  if (!card.chunks || card.chunks.length === 0) {
+    contentEl.textContent = cleanChunkDisplay(card.spanish_display || '')
+    return
+  }
+
+  let activeChunkEl = null
+  function resetAll() {
+    if (activeChunkEl) {
+      activeChunkEl.textContent = activeChunkEl.dataset.orig
+      activeChunkEl.classList.remove('active')
+    }
+    contentEl.querySelectorAll('.fc-chunk-token').forEach(el => el.classList.remove('active'))
+    bubble.style.display = 'none'
+    activeChunkEl = null
+  }
+  function showBubble(text) {
+    if (!text) { bubble.style.display = 'none'; return }
+    bubble.textContent = text
+    bubble.style.display = 'block'
+  }
+
+  card.chunks.forEach((chunk, ci) => {
+    if (ci > 0) contentEl.appendChild(document.createTextNode(' '))
+    const raw = normalizeRaw(chunk.spanish_raw || chunk.spanish_chunk)
+    const tokens = parseTokens(raw)
+    const leafTokens = getLeafTokens(tokens)
+    const hasSubTokens = leafTokens.length > 1 ||
+      (leafTokens.length === 1 && leafTokens[0].type !== 'word')
+
+    const chunkSpan = document.createElement('span')
+    chunkSpan.className = 'fc-chunk-token'
+    chunkSpan.dataset.orig = cleanChunkDisplay(chunk.spanish_chunk)
+    chunkSpan.textContent = cleanChunkDisplay(chunk.spanish_chunk)
+
+    chunkSpan.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (activeChunkEl && activeChunkEl !== chunkSpan) {
+        activeChunkEl.textContent = activeChunkEl.dataset.orig
+        activeChunkEl.classList.remove('active')
+        contentEl.querySelectorAll('.fc-chunk-token').forEach(el => el.classList.remove('active'))
+        bubble.style.display = 'none'
+        activeChunkEl = null
+      }
+      if (activeChunkEl === chunkSpan) { resetAll(); return }
+      activeChunkEl = chunkSpan
+      chunkSpan.classList.add('active')
+      showBubble(chunk.japanese_chunk || cleanChunkDisplay(chunk.spanish_chunk))
+      if (hasSubTokens) expandChunkToSubs(chunkSpan, leafTokens, card.vocab, bubble, showBubble)
+    })
+
+    contentEl.appendChild(chunkSpan)
+  })
+
+  contentEl.addEventListener('click', (e) => { if (e.target === contentEl) resetAll() })
+}
+
+function updateLpProgress() {
+  const doneCount = Object.values(lpResults).filter(r => r === '○').length
+  const pct = lpTotal > 0 ? Math.round((doneCount / lpTotal) * 100) : 0
+  document.getElementById('lp-progress-fill').style.width = pct + '%'
+  const remaining = lpQueue.length - lpIndex
+  document.getElementById('lp-progress-text').textContent = `残り ${remaining} 枚`
+}
+
+function judgeLpCard(result) {
+  const card = lpQueue[lpIndex]
+  lpResults[card.id] = result
+  if (!(card.id in lpFirstResults)) lpFirstResults[card.id] = result
+
+  if (result === '○') {
+    nextLpCard()
+  } else {
+    lpQueue.push(card)
+    nextLpCard()
+  }
+}
+
+function nextLpCard() {
+  lpIndex++
+  if (lpIndex >= lpQueue.length) {
+    showLpResult()
+  } else {
+    renderLpCard()
+  }
+}
+
+function showLpResult() {
+  stopLpAudio()
+  document.getElementById('lp-card-mode-wrap').style.display = 'none'
+  document.getElementById('lp-result-view').style.display = 'block'
+
+  const maru    = Object.values(lpFirstResults).filter(r => r === '○').length
+  const sankaku = Object.values(lpFirstResults).filter(r => r === '△').length
+  const batsu   = Object.values(lpFirstResults).filter(r => r === '×').length
+
+  document.getElementById('lp-result-stats').innerHTML = `
+    <div><span class="stat-maru">${maru}</span> ○ わかった</div>
+    <div><span class="stat-sankaku">${sankaku}</span> △ なんとなく</div>
+    <div><span class="stat-batsu">${batsu}</span> × わからなかった</div>
+  `
+
+  const allFlat = lpActivePlan._sentencesFlat || []
+  const reviewCards = allFlat.filter(c => {
+    const r = lpFirstResults[c.id]
+    return r === '△' || r === '×'
+  })
+
+  const missedEl = document.getElementById('lp-result-missed')
+  missedEl.innerHTML = ''
+
+  if (reviewCards.length > 0) {
+    const title = document.createElement('div')
+    title.className = 'result-missed-title'
+    title.textContent = `△・× だったセンテンス（${reviewCards.length}件）`
+    missedEl.appendChild(title)
+
+    reviewCards.forEach(c => {
+      const r = lpFirstResults[c.id] || ''
+      const badgeColor = r === '△' ? 'var(--earth)' : 'var(--accent)'
+      const item = document.createElement('div')
+      item.className = 'result-missed-item'
+      item.innerHTML = `
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span style="color:${badgeColor};font-size:1rem">${r}</span>
+          <span>${cleanChunkDisplay(c.spanish_display || '')}</span>
+        </div>
+        ${c.japanese ? `<div class="result-missed-jp">${c.japanese}</div>` : ''}
+      `
+      missedEl.appendChild(item)
+    })
+  }
+}
+
+function backFromLpTraining() {
+  stopLpAudio()
+  document.getElementById('view-lp-training').style.display = 'none'
+  document.getElementById('view-list').classList.remove('hidden')
+}
+
+function initLpTrainingUI() {
+  document.getElementById('lp-btn-flip').addEventListener('click', () => {
+    if (lpActiveMode === 'jp_es') {
+      const inputVal = document.getElementById('lp-card-input').value.trim()
+      const wrapEl = document.getElementById('lp-user-answer-wrap')
+      const textareaEl = document.getElementById('lp-user-answer-text')
+      if (inputVal) {
+        textareaEl.value = inputVal
+        wrapEl.style.display = 'flex'
+      } else {
+        wrapEl.style.display = 'none'
+      }
+    }
+
+    document.getElementById('lp-front').style.display = 'none'
+    const back = document.getElementById('lp-back')
+    back.style.display = 'flex'
+    back.style.animation = 'none'
+    requestAnimationFrame(() => { back.style.animation = 'fadeInCard 0.25s ease' })
+
+    if (lpActiveMode === 'jp_es') renderLpBackES(lpQueue[lpIndex])
+  })
+
+  document.getElementById('lp-btn-maru').addEventListener('click', () => judgeLpCard('○'))
+  document.getElementById('lp-btn-sankaku').addEventListener('click', () => judgeLpCard('△'))
+  document.getElementById('lp-btn-batsu').addEventListener('click', () => judgeLpCard('×'))
+
+  document.getElementById('lp-back-btn').addEventListener('click', backFromLpTraining)
+  document.getElementById('lp-btn-back-list').addEventListener('click', backFromLpTraining)
+  document.getElementById('lp-btn-retry-all').addEventListener('click', () => {
+    startLpPass(lpActivePlan._sentencesFlat)
+  })
+}
+
+/* ----- チャンク解析ユーティリティ(レッスンプレイ画面と同じロジック) ----- */
+function parseTokens(raw) {
+  const tokens = []
+  let i = 0
+  while (i < raw.length) {
+    if (raw[i] === '"') {
+      const end = raw.indexOf('"', i + 1)
+      const text = raw.slice(i + 1, end === -1 ? raw.length : end).trim()
+      tokens.push({ type: 'silent', text })
+      i = end === -1 ? raw.length : end + 1
+    } else if (raw[i] === '[') {
+      const end = findClosing(raw, i, '[', ']')
+      const inner = raw.slice(i + 1, end).trim()
+      const children = parseInnerTokens(inner)
+      const displayText = stripSymbolsLight(inner)
+      tokens.push({ type: 'phrase', text: displayText, displayText, children })
+      i = end + 1
+    } else if (raw[i] === '(') {
+      const end = findClosing(raw, i, '(', ')')
+      const text = raw.slice(i + 1, end).trim()
+      const cleanText = text.replace(/^[¿¡\s]+|[?!.,;:\s]+$/g, '').trim()
+      tokens.push({ type: 'expression', text: cleanText, displayText: cleanText })
+      i = end + 1
+    } else if (raw[i] === '/') {
+      tokens.push({ type: 'sep' })
+      i++
+    } else if (raw[i] === ' ') {
+      i++
+    } else {
+      let j = i
+      while (j < raw.length && !' []()/\"'.includes(raw[j])) j++
+      const rawText = raw.slice(i, j)
+      const text = stripPunctuation(rawText)
+      if (text) tokens.push({ type: 'word', text, displayText: rawText })
+      i = j
+    }
+  }
+  return tokens
+}
+
+function parseInnerTokens(raw) {
+  const tokens = []
+  let i = 0
+  while (i < raw.length) {
+    if (raw[i] === '(') {
+      const end = findClosing(raw, i, '(', ')')
+      tokens.push({ type: 'expression', text: raw.slice(i + 1, end).trim() })
+      i = end + 1
+    } else if (raw[i] === ' ') { i++ }
+    else {
+      let j = i
+      while (j < raw.length && !' ()'.includes(raw[j])) j++
+      const rawText = raw.slice(i, j)
+      const text = stripPunctuation(rawText)
+      if (text) tokens.push({ type: 'word', text, displayText: rawText })
+      i = j
+    }
+  }
+  return tokens
+}
+
+function getLeafTokens(tokens, parentText) {
+  const result = []
+  tokens.forEach(t => {
+    if (t.type === 'silent' || t.type === 'sep') return
+    if (t.type === 'phrase' && t.children && t.children.length > 0) {
+      result.push(...getLeafTokens(t.children, t.text))
+    } else {
+      result.push({ ...t, parentText: parentText || null })
+    }
+  })
+  return result
+}
+
+function findClosing(str, start, open, close) {
+  let depth = 0
+  for (let i = start; i < str.length; i++) {
+    if (str[i] === open) depth++
+    if (str[i] === close) { depth--; if (depth === 0) return i }
+  }
+  return str.length - 1
+}
+
+function stripSymbolsLight(str) {
+  return str.replace(/[\[\](){}\|"]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+function stripPunctuation(text) {
+  return text.replace(/^[¿¡\s]+|[?!.,;:\s]+$/g, '').trim()
+}
+
+function cleanChunkDisplay(text) {
+  if (!text) return ''
+  return text
+    .replace(/[\[\](){}\|"]/g, '')
+    .replace(/¿|¡/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeRaw(raw) {
+  if (!raw) return ''
+  return raw.replace(/\{/g, '[').replace(/\}/g, ']')
+}
+
+function expandChunkToSubs(chunkSpan, leafTokens, vocabMap, bubble, showBubble) {
+  chunkSpan.innerHTML = ''
+  chunkSpan.classList.add('active')
+
+  leafTokens.forEach((token, ti) => {
+    if (ti > 0) chunkSpan.appendChild(document.createTextNode(' '))
+    const subSpan = document.createElement('span')
+    subSpan.className = `fc-sub-token ${token.type}`
+    subSpan.textContent = token.displayText || token.text
+    if (token.type !== 'silent') {
+      subSpan.addEventListener('click', (e) => {
+        e.stopPropagation()
+        chunkSpan.querySelectorAll('.fc-sub-token').forEach(el => el.classList.remove('active'))
+        subSpan.classList.add('active')
+        const meaning = vocabMap[token.text] || ''
+        showBubble(meaning ? `${token.text} — ${meaning}` : token.text)
+      })
+    }
+    chunkSpan.appendChild(subSpan)
+  })
+}
+
 ;(async () => {
   await checkAuth()
   initDrawer()
   initNotifButton()
   initTrainingUI()
+  initLpModeSelectUI()
+  initLpTrainingUI()
   await fetchAll()
   renderList()
+  await fetchLessonPlans()
+  renderLessonGroup()
   loadNotifBadge()
 })()
