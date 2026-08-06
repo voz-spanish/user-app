@@ -70,7 +70,10 @@ function renderList() {
   empty.style.display = 'none'
 
   // カテゴリ未設定のセットも「その他」としてまとめる
+  // ※「レッスン」という名前のカテゴリは、レッスン素材一覧(lp-list-group)の
+  //   見出しと名前が重複してしまうため、ここでは除外する
   const groups = [...allCategories, { id: null, name: 'その他' }]
+    .filter(cat => cat.name !== 'レッスン')
 
   groups.forEach(cat => {
     const sets = allSets.filter(s => (s.category_id || null) === cat.id)
@@ -266,7 +269,10 @@ async function loadNotifBadge() {
    練習できるようにする。
 ===================================================== */
 
-let allLessonPlans = [] // [{ id, title, items:[{id,material,lessonNumber,sentences}], sentenceCount }]
+// 「レッスンプラン」単位ではなく、プランに含まれる「レッスン素材」ごとに
+// タイトルで束ねて一覧表示する。同じタイトルの素材が複数プランに含まれる
+// 場合は1つに統合し、センテンスも重複排除してまとめる。
+let allLessonMaterials = [] // [{ title, sentences:[...], sentenceCount }]
 
 async function fetchLessonPlans() {
   const { data, error } = await db
@@ -287,32 +293,50 @@ async function fetchLessonPlans() {
 
   if (error) {
     console.error(error)
-    allLessonPlans = []
+    allLessonMaterials = []
     return
   }
 
-  allLessonPlans = (data || []).map(plan => {
-    const items = [...(plan.lesson_plan_items || [])]
-      .sort((a, b) => a.order_index - b.order_index)
-      .map((item, idx) => ({
-        id: item.id,
-        material: item.audio_materials,
-        lessonNumber: idx + 1,
-        sentences: [...(item.lesson_plan_sentences || [])]
-          .sort((a, b) => a.order_index - b.order_index)
-          .filter(s => s.audio_sentences)
-          .map(s => ({
-            id: s.audio_sentences.id,
-            sentence_number: s.audio_sentences.sentence_number,
-            spanish_display: s.audio_sentences.spanish_display,
-            japanese: s.audio_sentences.japanese,
-            start_sec: s.audio_sentences.start_sec,
-            end_sec: s.audio_sentences.end_sec
-          }))
-      }))
-    const sentenceCount = items.reduce((sum, it) => sum + it.sentences.length, 0)
-    return { id: plan.id, title: plan.title, items, sentenceCount }
-  }).filter(p => p.sentenceCount > 0)
+  // タイトルごとにセンテンスを束ねる（同一タイトルは統合・センテンスは重複排除）
+  const byTitle = {} // title -> { title, sentencesById:{}, order:[] }
+
+  ;(data || []).forEach(plan => {
+    const items = [...(plan.lesson_plan_items || [])].sort((a, b) => a.order_index - b.order_index)
+
+    items.forEach(item => {
+      const material = item.audio_materials
+      const title = material?.title || '（タイトル未設定）'
+
+      const sentences = [...(item.lesson_plan_sentences || [])]
+        .sort((a, b) => a.order_index - b.order_index)
+        .filter(s => s.audio_sentences)
+        .map(s => ({
+          id: s.audio_sentences.id,
+          sentence_number: s.audio_sentences.sentence_number,
+          spanish_display: s.audio_sentences.spanish_display,
+          japanese: s.audio_sentences.japanese,
+          start_sec: s.audio_sentences.start_sec,
+          end_sec: s.audio_sentences.end_sec,
+          material
+        }))
+
+      if (!byTitle[title]) byTitle[title] = { title, sentencesById: {}, order: [] }
+      sentences.forEach(s => {
+        if (!byTitle[title].sentencesById[s.id]) {
+          byTitle[title].sentencesById[s.id] = s
+          byTitle[title].order.push(s.id)
+        }
+      })
+    })
+  })
+
+  allLessonMaterials = Object.values(byTitle)
+    .map(g => {
+      const sentences = g.order.map(id => g.sentencesById[id])
+      return { title: g.title, sentences, sentenceCount: sentences.length }
+    })
+    .filter(m => m.sentenceCount > 0)
+    .sort((a, b) => a.title.localeCompare(b.title, 'ja'))
 }
 
 function renderLessonGroup() {
@@ -320,22 +344,22 @@ function renderLessonGroup() {
   const wrap = document.getElementById('lp-list')
   wrap.innerHTML = ''
 
-  if (allLessonPlans.length === 0) {
+  if (allLessonMaterials.length === 0) {
     groupEl.style.display = 'none'
     return
   }
   groupEl.style.display = 'block'
 
-  allLessonPlans.forEach(plan => {
+  allLessonMaterials.forEach(material => {
     const row = document.createElement('div')
     row.className = 'set-row'
     row.innerHTML = `
-      <span class="set-row-name">${plan.title || '（タイトル未設定）'}</span>
+      <span class="set-row-name">${material.title}</span>
       <span class="set-row-meta">
-        <span class="set-row-count">${plan.sentenceCount}枚</span>
+        <span class="set-row-count">${material.sentenceCount}枚</span>
       </span>
     `
-    row.addEventListener('click', () => openLpModeSelect(plan))
+    row.addEventListener('click', () => openLpModeSelect(material))
     wrap.appendChild(row)
   })
 }
@@ -344,11 +368,11 @@ function renderLessonGroup() {
 let lpActivePlan = null
 let lpActiveMode = null
 
-function openLpModeSelect(plan) {
-  lpActivePlan = plan
+function openLpModeSelect(material) {
+  lpActivePlan = material // 現在選択中の「レッスン素材」グループ（変数名は既存のまま流用）
   document.getElementById('view-list').classList.add('hidden')
   document.getElementById('view-lp-mode').style.display = 'block'
-  document.getElementById('lp-mode-title').textContent = plan.title || '（タイトル未設定）'
+  document.getElementById('lp-mode-title').textContent = material.title
 }
 
 function closeLpModeSelect() {
@@ -363,15 +387,10 @@ function initLpModeSelectUI() {
 }
 
 /* ----- チャンク/語彙の読み込み(初回のみ・遅延読み込み) ----- */
-async function ensureLpSentencesLoaded(plan) {
-  if (plan._sentencesFlat) return plan._sentencesFlat
+async function ensureLpSentencesLoaded(material) {
+  if (material._sentencesFlat) return material._sentencesFlat
 
-  const flat = []
-  plan.items.forEach(it => {
-    it.sentences.forEach(s => {
-      flat.push({ ...s, itemId: it.id, material: it.material, lessonNumber: it.lessonNumber })
-    })
-  })
+  const flat = material.sentences.map(s => ({ ...s }))
 
   const ids = flat.map(s => s.id)
   if (ids.length > 0) {
@@ -392,7 +411,7 @@ async function ensureLpSentencesLoaded(plan) {
     flat.forEach(s => { s.chunks = chunksMap[s.id] || []; s.vocab = vocabMap[s.id] || {} })
   }
 
-  plan._sentencesFlat = flat
+  material._sentencesFlat = flat
   return flat
 }
 
@@ -550,7 +569,7 @@ async function startLpSession(mode) {
   lpActiveMode = mode
   const sentences = await ensureLpSentencesLoaded(lpActivePlan)
 
-  if (lpActivePlan.items.some(it => it.material?.type === 'youtube' && it.material?.youtube_id)) {
+  if (sentences.some(s => s.material?.type === 'youtube' && s.material?.youtube_id)) {
     loadLpYouTubeAPI()
   }
 
@@ -580,7 +599,7 @@ function startLpPass(sentences) {
 }
 
 function lpLabel(card) {
-  return `レッスン ${card.lessonNumber}　・　センテンス ${card.sentence_number ?? ''}`
+  return `センテンス ${card.sentence_number ?? ''}`
 }
 
 function renderLpCard() {
